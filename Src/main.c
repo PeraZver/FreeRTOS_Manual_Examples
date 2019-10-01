@@ -282,6 +282,7 @@ static void MX_GPIO_Init(void)
 void vTaskFunction( void *pvParameters )
 {
 	const char* pcTaskName;
+	const TickType_t xDelay1000ms = pdMS_TO_TICKS(1000);
 	/* The string to print out is passed in via the parameter. Cast this to a
 	character pointer. */
 	pcTaskName = ( char * ) pvParameters;
@@ -293,7 +294,7 @@ void vTaskFunction( void *pvParameters )
 		HAL_UART_Transmit(&huart2, (uint8_t*)pcTaskName, strlen(pcTaskName), 0xFFFF);
 		//printf( pcTaskName );
 		/* Delay for a period. */
-		vTaskDelay(1000 / portTICK_PERIOD_MS);
+		vTaskDelay(xDelay1000ms);
 
 	}
 }
