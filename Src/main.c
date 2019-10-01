@@ -48,10 +48,12 @@ ADC_HandleTypeDef hadc1;
 
 UART_HandleTypeDef huart2;
 
-osThreadId_t defaultTaskHandle;
 /* USER CODE BEGIN PV */
 static const char *pcTextForTask1 = "Task 1 is running - Pero\r\n";
 static const char *pcTextForTask2 = "Task 2 is running\r\n";
+
+/* Declare a variable that will be incremented by the hook function. */
+volatile uint32_t ulIdleCycleCount = 0UL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,6 +64,7 @@ static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 void vTaskFunction( void *pvParameters );
+void vIdlePrint( void *pvParameters );
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -110,6 +113,7 @@ int main(void)
 
   /* Create the other task in exactly the same way and at the same priority. */
   xTaskCreate( vTaskFunction, "Task 2", 128, (void*)pcTextForTask2, 2, NULL );
+  xTaskCreate( vIdlePrint, "Idle Task", 128, NULL, 5, NULL );
   /* Start the scheduler so the tasks start executing. */
   vTaskStartScheduler();
 
@@ -302,6 +306,34 @@ void vTaskFunction( void *pvParameters )
 		vTaskDelayUntil( &xLastWakeTime, pdMS_TO_TICKS(1000) );
 
 	}
+}
+
+void vIdlePrint( void *pvParameters )
+{
+	char  sIdleCount[30];
+	const TickType_t xDelay250ms = pdMS_TO_TICKS( 250 );
+	/* The string to print out is passed in via the parameter. Cast this to a
+	character pointer. */
+	//pcTaskName = ( char * ) pvParameters;
+	/* As per most tasks, this task is implemented in an infinite loop. */
+	for( ;; )	{
+		/* Print out the name of this task AND the number of times ulIdleCycleCount
+		has been incremented. */
+		sprintf(sIdleCount, "IdleCycleCount:  %lu \r\n", ulIdleCycleCount);
+		//pcTaskName = strcat(pcTaskName, sIdleCount);
+		HAL_UART_Transmit(&huart2, (uint8_t*)sIdleCount, strlen(sIdleCount), 0xFFFF);
+		/* Delay for a period of 250 milliseconds. */
+		vTaskDelay( xDelay250ms );
+	}
+}
+
+
+/* Idle hook functions MUST be called vApplicationIdleHook(), take no parameters,
+and return void. */
+void vApplicationIdleHook( void )
+{
+	/* This hook function does nothing but increment a counter. */
+	ulIdleCycleCount++;
 }
 
 /* USER CODE END 4 */
