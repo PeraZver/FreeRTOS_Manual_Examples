@@ -50,6 +50,8 @@ UART_HandleTypeDef huart2;
 
 osThreadId_t defaultTaskHandle;
 /* USER CODE BEGIN PV */
+static const char *pcTextForTask1 = "Task 1 is running - Pero\r\n";
+static const char *pcTextForTask2 = "Task 2 is running\r\n";
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,8 +61,7 @@ static void MX_ADC1_Init(void);
 static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
-void vTask1( void *pvParameters );
-void vTask2( void *pvParameters );
+void vTaskFunction( void *pvParameters );
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -100,15 +101,15 @@ int main(void)
   MX_ADC1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  xTaskCreate( vTask1, /* Pointer to the function that implements the task. */
+  xTaskCreate( vTaskFunction, /* Pointer to the function that implements the task. */
 		  	  "Task 1",/* Text name for the task. This is to facilitate  debugging only. */
 			  128, /* Stack depth - small microcontrollers will use much  less stack than this. */
-			  NULL, /* This example does not use the task parameter. */
-			  5, /* This task will run at priority 1. */
+			  (void*) pcTextForTask1, /* This example does not use the task parameter. */
+			  1, /* This task will run at priority 1. */
 			  NULL ); /* This example does not use the task handle. */
 
   /* Create the other task in exactly the same way and at the same priority. */
-  xTaskCreate( vTask2, "Task 2", 128, NULL, 5, NULL );
+  xTaskCreate( vTaskFunction, "Task 2", 128, (void*)pcTextForTask2, 1, NULL );
   /* Start the scheduler so the tasks start executing. */
   vTaskStartScheduler();
 
@@ -278,37 +279,25 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void vTask1( void *pvParameters )
+void vTaskFunction( void *pvParameters )
 {
-	const char* pcTaskName = "Pero's Task 1 is running\r\n";
+	const char* pcTaskName;
+	/* The string to print out is passed in via the parameter. Cast this to a
+	character pointer. */
+	pcTaskName = ( char * ) pvParameters;
+
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
 	{
 		/* Print out the name of this task. */
-		HAL_UART_Transmit(&huart2, (uint8_t*)pcTaskName, 30, 0xFFFF);
+		HAL_UART_Transmit(&huart2, (uint8_t*)pcTaskName, strlen(pcTaskName), 0xFFFF);
 		//printf( pcTaskName );
 		/* Delay for a period. */
 		vTaskDelay(1000 / portTICK_PERIOD_MS);
-		 //osDelay(3000);
 
 	}
 }
 
-void vTask2( void *pvParameters )
-{
-	char pcTaskName[30] = "Task 2 is running\r\n";
-	/* As per most tasks, this task is implemented in an infinite loop. */
-	for( ;; )
-	{
-		/* Print out the name of this task. */
-		HAL_UART_Transmit(&huart2, (uint8_t*)pcTaskName, 21, 0xFFFF);
-		//printf( pcTaskName );
-		/* Delay for a period. */
-		vTaskDelay(3000 / portTICK_PERIOD_MS);
-		// osDelay(1000);
-
-	}
-}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
