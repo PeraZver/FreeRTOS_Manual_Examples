@@ -109,7 +109,7 @@ int main(void)
 			  NULL ); /* This example does not use the task handle. */
 
   /* Create the other task in exactly the same way and at the same priority. */
-  xTaskCreate( vTaskFunction, "Task 2", 128, (void*)pcTextForTask2, 1, NULL );
+  xTaskCreate( vTaskFunction, "Task 2", 128, (void*)pcTextForTask2, 2, NULL );
   /* Start the scheduler so the tasks start executing. */
   vTaskStartScheduler();
 
