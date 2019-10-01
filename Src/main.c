@@ -282,10 +282,15 @@ static void MX_GPIO_Init(void)
 void vTaskFunction( void *pvParameters )
 {
 	const char* pcTaskName;
-	const TickType_t xDelay1000ms = pdMS_TO_TICKS(1000);
+	TickType_t xLastWakeTime;
 	/* The string to print out is passed in via the parameter. Cast this to a
 	character pointer. */
 	pcTaskName = ( char * ) pvParameters;
+
+	/* The xLastWakeTime variable needs to be initialized with the current tick
+	count. Note that this is the only time the variable is written to explicitly.
+	After this xLastWakeTime is automatically updated within vTaskDelayUntil(). */
+	xLastWakeTime = xTaskGetTickCount();
 
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for( ;; )
@@ -294,7 +299,7 @@ void vTaskFunction( void *pvParameters )
 		HAL_UART_Transmit(&huart2, (uint8_t*)pcTaskName, strlen(pcTaskName), 0xFFFF);
 		//printf( pcTaskName );
 		/* Delay for a period. */
-		vTaskDelay(xDelay1000ms);
+		vTaskDelayUntil( &xLastWakeTime, pdMS_TO_TICKS(1000) );
 
 	}
 }
