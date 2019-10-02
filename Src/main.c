@@ -102,19 +102,13 @@ int main(void)
   MX_ADC1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  /* Create the first task at priority 2. The task parameter is not used
-  and set to NULL. The task handle is also not used so is also set to NULL. */
-  xTaskCreate( vTask1, "Task 1", 1000, NULL, 2, NULL );
-  /* The task is created at priority 2 ______^. */
-  /* Create the second task at priority 1 - which is lower than the priority
-  given to Task 1. Again the task parameter is not used so is set to NULL -
-  BUT this time the task handle is required so the address of xTask2Handle
-  is passed in the last parameter. */
-  xTaskCreate( vTask2, "Task 2", 1000, NULL, 1, &xTask2Handle );
-  /* The task handle is the last parameter _____^^^^^^^^^^^^^ */
-  /* Start the scheduler so the tasks start executing. */
+  /* Create the first task at priority 1. The task parameter is not used
+  so is set to NULL. The task handle is also not used so likewise is set
+  to NULL. */
+  xTaskCreate( vTask1, "Task 1", 1000, NULL, 1, NULL );
+  /* The task is created at priority 1 ______^. */
+  /* Start the scheduler so the task starts executing. */
   vTaskStartScheduler();
-
 
   /* USER CODE END 2 */
   /* We should never get here as control is now taken by the scheduler */
@@ -283,55 +277,31 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void vTask1( void *pvParameters )
 {
-	UBaseType_t uxPriority;
-	/* This task will always run before Task 2 as it is created with the higher
-	priority. Neither Task 1 nor Task 2 ever block so both will always be in
-	either the Running or the Ready state.
-	Query the priority at which this task is running - passing in NULL means
-	"return the calling task’s priority". */
-	uxPriority = uxTaskPriorityGet( NULL );
+	const TickType_t xDelay100ms = pdMS_TO_TICKS( 100UL );
 	for( ;; )
 	{
 		/* Print out the name of this task. */
 		vPrintString( "Task 1 is running\r\n" );
-		/* Setting the Task 2 priority above the Task 1 priority will cause
-		Task 2 to immediately start running (as then Task 2 will have the higher
-		priority of the two created tasks). Note the use of the handle to task
-		2 (xTask2Handle) in the call to vTaskPrioritySet(). Listing 35 shows how
-		the handle was obtained. */
-		vPrintString( "About to raise the Task 2 priority\r\n" );
-		vTaskPrioritySet( xTask2Handle, ( uxPriority + 1 ) );
-		/* Task 1 will only run when it has a priority higher than Task 2.
-		Therefore, for this task to reach this point, Task 2 must already have
-		executed and set its priority back down to below the priority of this
-		task. */
+		/* Create task 2 at a higher priority. Again the task parameter is not
+		used so is set to NULL - BUT this time the task handle is required so
+		the address of xTask2Handle is passed as the last parameter. */
+		xTaskCreate( vTask2, "Task 2", 1000, NULL, 2, &xTask2Handle );
+		/* The task handle is the last parameter _____^^^^^^^^^^^^^ */
+		/* Task 2 has/had the higher priority, so for Task 1 to reach here Task 2
+		must have already executed and deleted itself. Delay for 100
+		milliseconds. */
+		vTaskDelay( xDelay100ms );
 	}
 }
 
 void vTask2( void *pvParameters )
 {
-	UBaseType_t uxPriority;
-	/* Task 1 will always run before this task as Task 1 is created with the
-	higher priority. Neither Task 1 nor Task 2 ever block so will always be
-	in either the Running or the Ready state.
-	Query the priority at which this task is running - passing in NULL means
-	"return the calling task’s priority". */
-	uxPriority = uxTaskPriorityGet( NULL );
-	for( ;; )
-	{
-		/* For this task to reach this point Task 1 must have already run and
-		set the priority of this task higher than its own.
-		Print out the name of this task. */
-		vPrintString( "Task 2 is running\r\n" );
-		/* Set the priority of this task back down to its original value.
-		Passing in NULL as the task handle means "change the priority of the
-		calling task". Setting the priority below that of Task 1 will cause
-		Task 1 to immediately start running again – pre-empting this task. */
-		vPrintString( "About to lower the Task 2 priority\r\n" );
-		vTaskPrioritySet( NULL, ( uxPriority - 2 ) );
-	}
+	/* Task 2 does nothing but delete itself. To do this it could call vTaskDelete()
+	using NULL as the parameter, but instead, and purely for demonstration purposes,
+	it calls vTaskDelete() passing its own task handle. */
+	vPrintString( "Task 2 is running and about to delete itself\r\n" );
+	vTaskDelete( xTask2Handle );
 }
-
 void vPrintString(char* message){
 	HAL_UART_Transmit(&huart2, (uint8_t*)message, strlen(message), 0xFFFF);
 }
