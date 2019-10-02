@@ -49,11 +49,8 @@ ADC_HandleTypeDef hadc1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-static const char *pcTextForTask1 = "Task 1 is running - Pero\r\n";
-static const char *pcTextForTask2 = "Task 2 is running\r\n";
-
-/* Declare a variable that will be incremented by the hook function. */
-volatile uint32_t ulIdleCycleCount = 0UL;
+/* Declare a variable that is used to hold the handle of Task 2. */
+TaskHandle_t xTask2Handle = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,8 +60,9 @@ static void MX_ADC1_Init(void);
 static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
-void vTaskFunction( void *pvParameters );
-void vIdlePrint( void *pvParameters );
+void vTask1( void *pvParameters );
+void vTask2( void *pvParameters );
+void vPrintString(char* message);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -104,16 +102,16 @@ int main(void)
   MX_ADC1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  xTaskCreate( vTaskFunction, /* Pointer to the function that implements the task. */
-		  	  "Task 1",/* Text name for the task. This is to facilitate  debugging only. */
-			  128, /* Stack depth - small microcontrollers will use much  less stack than this. */
-			  (void*) pcTextForTask1, /* This example does not use the task parameter. */
-			  1, /* This task will run at priority 1. */
-			  NULL ); /* This example does not use the task handle. */
-
-  /* Create the other task in exactly the same way and at the same priority. */
-  xTaskCreate( vTaskFunction, "Task 2", 128, (void*)pcTextForTask2, 2, NULL );
-  xTaskCreate( vIdlePrint, "Idle Task", 128, NULL, 5, NULL );
+  /* Create the first task at priority 2. The task parameter is not used
+  and set to NULL. The task handle is also not used so is also set to NULL. */
+  xTaskCreate( vTask1, "Task 1", 1000, NULL, 2, NULL );
+  /* The task is created at priority 2 ______^. */
+  /* Create the second task at priority 1 - which is lower than the priority
+  given to Task 1. Again the task parameter is not used so is set to NULL -
+  BUT this time the task handle is required so the address of xTask2Handle
+  is passed in the last parameter. */
+  xTaskCreate( vTask2, "Task 2", 1000, NULL, 1, &xTask2Handle );
+  /* The task handle is the last parameter _____^^^^^^^^^^^^^ */
   /* Start the scheduler so the tasks start executing. */
   vTaskStartScheduler();
 
@@ -283,57 +281,59 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void vTaskFunction( void *pvParameters )
+void vTask1( void *pvParameters )
 {
-	const char* pcTaskName;
-	TickType_t xLastWakeTime;
-	/* The string to print out is passed in via the parameter. Cast this to a
-	character pointer. */
-	pcTaskName = ( char * ) pvParameters;
-
-	/* The xLastWakeTime variable needs to be initialized with the current tick
-	count. Note that this is the only time the variable is written to explicitly.
-	After this xLastWakeTime is automatically updated within vTaskDelayUntil(). */
-	xLastWakeTime = xTaskGetTickCount();
-
-	/* As per most tasks, this task is implemented in an infinite loop. */
+	UBaseType_t uxPriority;
+	/* This task will always run before Task 2 as it is created with the higher
+	priority. Neither Task 1 nor Task 2 ever block so both will always be in
+	either the Running or the Ready state.
+	Query the priority at which this task is running - passing in NULL means
+	"return the calling task’s priority". */
+	uxPriority = uxTaskPriorityGet( NULL );
 	for( ;; )
 	{
 		/* Print out the name of this task. */
-		HAL_UART_Transmit(&huart2, (uint8_t*)pcTaskName, strlen(pcTaskName), 0xFFFF);
-		//printf( pcTaskName );
-		/* Delay for a period. */
-		vTaskDelayUntil( &xLastWakeTime, pdMS_TO_TICKS(1000) );
-
+		vPrintString( "Task 1 is running\r\n" );
+		/* Setting the Task 2 priority above the Task 1 priority will cause
+		Task 2 to immediately start running (as then Task 2 will have the higher
+		priority of the two created tasks). Note the use of the handle to task
+		2 (xTask2Handle) in the call to vTaskPrioritySet(). Listing 35 shows how
+		the handle was obtained. */
+		vPrintString( "About to raise the Task 2 priority\r\n" );
+		vTaskPrioritySet( xTask2Handle, ( uxPriority + 1 ) );
+		/* Task 1 will only run when it has a priority higher than Task 2.
+		Therefore, for this task to reach this point, Task 2 must already have
+		executed and set its priority back down to below the priority of this
+		task. */
 	}
 }
 
-void vIdlePrint( void *pvParameters )
+void vTask2( void *pvParameters )
 {
-	char  sIdleCount[30];
-	const TickType_t xDelay250ms = pdMS_TO_TICKS( 250 );
-	/* The string to print out is passed in via the parameter. Cast this to a
-	character pointer. */
-	//pcTaskName = ( char * ) pvParameters;
-	/* As per most tasks, this task is implemented in an infinite loop. */
-	for( ;; )	{
-		/* Print out the name of this task AND the number of times ulIdleCycleCount
-		has been incremented. */
-		sprintf(sIdleCount, "IdleCycleCount:  %lu \r\n", ulIdleCycleCount);
-		//pcTaskName = strcat(pcTaskName, sIdleCount);
-		HAL_UART_Transmit(&huart2, (uint8_t*)sIdleCount, strlen(sIdleCount), 0xFFFF);
-		/* Delay for a period of 250 milliseconds. */
-		vTaskDelay( xDelay250ms );
+	UBaseType_t uxPriority;
+	/* Task 1 will always run before this task as Task 1 is created with the
+	higher priority. Neither Task 1 nor Task 2 ever block so will always be
+	in either the Running or the Ready state.
+	Query the priority at which this task is running - passing in NULL means
+	"return the calling task’s priority". */
+	uxPriority = uxTaskPriorityGet( NULL );
+	for( ;; )
+	{
+		/* For this task to reach this point Task 1 must have already run and
+		set the priority of this task higher than its own.
+		Print out the name of this task. */
+		vPrintString( "Task 2 is running\r\n" );
+		/* Set the priority of this task back down to its original value.
+		Passing in NULL as the task handle means "change the priority of the
+		calling task". Setting the priority below that of Task 1 will cause
+		Task 1 to immediately start running again – pre-empting this task. */
+		vPrintString( "About to lower the Task 2 priority\r\n" );
+		vTaskPrioritySet( NULL, ( uxPriority - 2 ) );
 	}
 }
 
-
-/* Idle hook functions MUST be called vApplicationIdleHook(), take no parameters,
-and return void. */
-void vApplicationIdleHook( void )
-{
-	/* This hook function does nothing but increment a counter. */
-	ulIdleCycleCount++;
+void vPrintString(char* message){
+	HAL_UART_Transmit(&huart2, (uint8_t*)message, strlen(message), 0xFFFF);
 }
 
 /* USER CODE END 4 */
