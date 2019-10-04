@@ -50,9 +50,8 @@ ADC_HandleTypeDef hadc1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-/* Declare a variable of type QueueHandle_t. This is used to store the handle
-to the queue that is accessed by all three tasks. */
-QueueHandle_t xQueue;
+/* Declare a variable of type QueueHandle_t to hold the handle of the queue being created. */
+QueueHandle_t xPointerQueue;
 /* Declare two variables of type Data_t that will be passed on the queue. */
 static Data_t xStructToSend[2] =
 {
@@ -111,18 +110,17 @@ int main(void)
   MX_ADC1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  /* The queue is created to hold a maximum of 5 values, each of which is
-  large enough to hold a variable of type int32_t. */
-  xQueue = xQueueCreate( 3, sizeof( Data_t ) );
+  /* Create a queue that can hold a maximum of 5 pointers, in this case character pointers. */
+  xPointerQueue = xQueueCreate( 5, sizeof( char * ) );
 
-  if( xQueue != NULL){
+  if( xPointerQueue != NULL){
 	  /* Create two instances of the task that will send to the queue. The task
 	  parameter is used to pass the structure that the task will write to the queue,
 	  so one task will continuously write xStructToSend[ 0 ] to the queue while the other task
 	  will continuously write xStructToSend[ 1 ] to the queue. Both tasks are created at
 	  priority 1. */
-	  xTaskCreate( vSenderTask, "Sender1", 1000, &( xStructToSend[0] ), 2, NULL);
-	  xTaskCreate( vSenderTask, "Sender2", 1000, &( xStructToSend[1] ), 2, NULL);
+	  xTaskCreate( vSenderTask, "Sender1", 1000, NULL, 2, NULL);
+	  // xTaskCreate( vSenderTask, "Sender2", 1000, &( xStructToSend[1] ), 2, NULL);
 
 	  /* Create the task that will read from the queue. The task is created with
 	  priority 1, so below the priority of the sender tasks. */
@@ -301,22 +299,29 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 static void vSenderTask( void *pvParameters )
 {
+	char *pcStringToSend;
+	const size_t xMaxStringLength = 50;
+	BaseType_t xStringNumber = 0;
 
 	BaseType_t xStatus;
-	const TickType_t xTicksToWait = pdMS_TO_TICKS(100);
 
-	for(;;){
-		/* Send to the queue.
-		The second parameter is the address of the structure being sent. The
-		address is passed in as the task parameter so pvParameters is used
-		directly.
-		The third parameter is the Block time - the time the task should be kept
-		in the Blocked state to wait for space to become available on the queue
-		if the queue is already full. A block time is specified because the
-		sending tasks have a higher priority than the receiving task so the queue
-		is expected to become full. The receiving task will remove items from
-		the queue when both sending tasks are in the Blocked state. */
-		xStatus = xQueueSendToBack( xQueue, pvParameters, xTicksToWait);
+	for (;;){
+		/* Obtain a buffer that is at least xMaxStringLength characters big. The implementation
+		of prvGetBuffer() is not shown – it might obtain the buffer from a pool of pre-allocated
+		buffers, or just allocate the buffer dynamically. */
+		pcStringToSend = (char * ) pvPortMalloc( xMaxStringLength*sizeof(char));
+
+		/* Write a string into the buffer */
+		snprintf(pcStringToSend, xMaxStringLength, "String number %d\r\n", xStringNumber);
+
+		/* Increment the string counter */
+		xStringNumber ++;
+
+		/* Send the address of the buffer to the queue that was created in Listing 52. The
+		address of the buffer is stored in the pcStringToSend variable.*/
+		xStatus = xQueueSend( xPointerQueue, /* The handle of the queue */
+							  &pcStringToSend, /* the address of the pointer that points into the buffer */
+							  portMAX_DELAY );
 
 		if (xStatus != pdPASS ){
 			/* The send operation could not complete because the queue was full -
@@ -324,49 +329,32 @@ static void vSenderTask( void *pvParameters )
 			one item! */
 			vPrintString( "Could not send to the queue.\r\n" );
 		}
-
 	}
 }
 
 static void vReceiverTask (void *pvParameters )
 {
-	/* Declare the structure that will hold the values received from the queue. */
-	Data_t xReceivedStructure;
+	char *pcReceivedString;
 	BaseType_t xStatus;
 
-	for (;;){
-		/* Because it has the lowest priority this task will only run when the
-		sending tasks are in the Blocked state. The sending tasks will only enter
-		the Blocked state when the queue is full so this task always expects the
-		number of items in the queue to be equal to the queue length, which is 3 in
-		this case. */
-		if( uxQueueMessagesWaiting( xQueue ) != 3 )	{
-			vPrintString( "Queue should have been empty!\r\n" );
-		}
-		/* Receive from the queue.
-		The second parameter is the buffer into which the received data will be
-		placed. In this case the buffer is simply the address of a variable that
-		has the required size to hold the received structure.
-		The last parameter is the block time - the maximum amount of time that the
-		task will remain in the Blocked state to wait for data to be available
-		if the queue is already empty. In this case a block time is not necessary
-		because this task will only run when the queue is full. */
-		xStatus = xQueueReceive( xQueue, &xReceivedStructure, 0 );
+	for (;;) {
+		/* Receive the address of the buffer */
+		xStatus = xQueueReceive( xPointerQueue,
+								 &pcReceivedString,
+								 portMAX_DELAY);
 
-		if (xStatus == pdPASS ){
-			/* Data was successfully received from the queue, print out the received
-			value and the source of the value. */
-			if ( xReceivedStructure.eDataSource == eSender1)
-				vPrintStringAndNumber( "From Sender1 = ", xReceivedStructure.ucValue );
-			else
-				vPrintStringAndNumber( "From Sender2 = ", xReceivedStructure.ucValue );
-		}
-		else {
-			/* Nothing was received from the queue. This must be an error as this
-			 * task should only run when the queue is full. */
-			vPrintString( "Could not receive from the queue.\r\n" );
-		}
+				if (xStatus == pdPASS ){
+					/* The buffer holds a string, print it out */
+					vPrintString( pcReceivedString );
 
+					/* The buffer is not required anymore - release it so it can be freed */
+					vPortFree(pcReceivedString);
+				}
+				else {
+					/* Nothing was received from the queue. This must be an error as this
+					 * task should only run when the queue is full. */
+					vPrintString( "Could not receive from the queue.\r\n" );
+				}
 	}
 }
 
