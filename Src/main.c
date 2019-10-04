@@ -26,6 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,8 +50,9 @@ ADC_HandleTypeDef hadc1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-/* Declare a variable that is used to hold the handle of Task 2. */
-TaskHandle_t xTask2Handle = NULL;
+/* Declare a variable of type QueueHandle_t. This is used to store the handle
+to the queue that is accessed by all three tasks. */
+QueueHandle_t xQueue;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,9 +62,10 @@ static void MX_ADC1_Init(void);
 static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
-void vTask1( void *pvParameters );
-void vTask2( void *pvParameters );
+static void vSenderTask( void *pvParameters );
+static void vReceiverTask( void *pvParameters );
 void vPrintString(char* message);
+void vPrintStringAndNumber(char* str, int32_t num);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -102,14 +105,29 @@ int main(void)
   MX_ADC1_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  /* Create the first task at priority 1. The task parameter is not used
-  so is set to NULL. The task handle is also not used so likewise is set
-  to NULL. */
-  xTaskCreate( vTask1, "Task 1", 1000, NULL, 1, NULL );
-  /* The task is created at priority 1 ______^. */
-  /* Start the scheduler so the task starts executing. */
-  vTaskStartScheduler();
+  /* The queue is created to hold a maximum of 5 values, each of which is
+  large enough to hold a variable of type int32_t. */
+  xQueue = xQueueCreate( 5, sizeof( int32_t ) );
 
+  if( xQueue != NULL){
+	  /* Create two instances of the task that will send to the queue. The task
+	  parameter is used to pass the value that the task will write to the queue,
+	  so one task will continuously write 100 to the queue while the other task
+	  will continuously write 200 to the queue. Both tasks are created at
+	  priority 1. */
+	  xTaskCreate( vSenderTask, "Sender1", 1000, (void *) 100, 1, NULL);
+	  xTaskCreate( vSenderTask, "Sender2", 1000, (void *) 200, 1, NULL);
+
+	  /* Create the task that will read from the queue. The task is created with
+	  priority 2, so above the priority of the sender tasks. */
+	  xTaskCreate( vReceiverTask, "Receiver", 1000, NULL, 2, NULL );
+
+	  /* Start the scheduler so the task starts executing. */
+	  vTaskStartScheduler();
+
+  }
+  else {
+  }
   /* USER CODE END 2 */
   /* We should never get here as control is now taken by the scheduler */
 
@@ -275,37 +293,98 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void vTask1( void *pvParameters )
+static void vSenderTask( void *pvParameters )
 {
-	const TickType_t xDelay100ms = pdMS_TO_TICKS( 100UL );
-	for( ;; )
-	{
-		/* Print out the name of this task. */
-		vPrintString( "Task 1 is running\r\n" );
-		/* Create task 2 at a higher priority. Again the task parameter is not
-		used so is set to NULL - BUT this time the task handle is required so
-		the address of xTask2Handle is passed as the last parameter. */
-		xTaskCreate( vTask2, "Task 2", 1000, NULL, 2, &xTask2Handle );
-		/* The task handle is the last parameter _____^^^^^^^^^^^^^ */
-		/* Task 2 has/had the higher priority, so for Task 1 to reach here Task 2
-		must have already executed and deleted itself. Delay for 100
-		milliseconds. */
-		vTaskDelay( xDelay100ms );
+	int32_t lValueToSend;
+	BaseType_t xStatus;
+
+	/* Two instances of this task are created so the value that is sent to the
+	queue is passed in via the task parameter - this way each instance can use
+	a different value. The queue was created to hold values of type int32_t,
+	so cast the parameter to the required type. */
+	lValueToSend = (int32_t) pvParameters;
+
+	for(;;){
+		/* Send the value to the queue.
+		The first parameter is the queue to which data is being sent. The
+		queue was created before the scheduler was started, so before this task
+		started to execute.
+		The second parameter is the address of the data to be sent, in this case
+		the address of lValueToSend.
+		The third parameter is the Block time – the time the task should be kept
+		in the Blocked state to wait for space to become available on the queue
+		should the queue already be full. In this case a block time is not
+		specified because the queue should never contain more than one item, and
+		therefore never be full. */
+		xStatus = xQueueSendToBack( xQueue, &lValueToSend, 0);
+
+		if (xStatus != pdPASS ){
+			/* The send operation could not complete because the queue was full -
+			this must be an error as the queue should never contain more than
+			one item! */
+			vPrintString( "Could not send to the queue.\r\n" );
+		}
+
 	}
 }
 
-void vTask2( void *pvParameters )
+static void vReceiverTask (void *pvParameters )
 {
-	/* Task 2 does nothing but delete itself. To do this it could call vTaskDelete()
-	using NULL as the parameter, but instead, and purely for demonstration purposes,
-	it calls vTaskDelete() passing its own task handle. */
-	vPrintString( "Task 2 is running and about to delete itself\r\n" );
-	vTaskDelete( xTask2Handle );
+	/* Declare the variable that will hold the values received from the queue. */
+	int32_t lReceivedValue;
+	BaseType_t xStatus;
+	const TickType_t xTicksToWait = pdMS_TO_TICKS( 100 );
+
+	for (;;){
+		/* This call should always find the queue empty because this task will
+		immediately remove any data that is written to the queue. */
+		if( uxQueueMessagesWaiting( xQueue ) != 0 )	{
+			vPrintString( "Queue should have been empty!\r\n" );
+		}
+		/* Receive data from the queue.
+		The first parameter is the queue from which data is to be received. The
+		queue is created before the scheduler is started, and therefore before this
+		task runs for the first time.
+		The second parameter is the buffer into which the received data will be
+		placed. In this case the buffer is simply the address of a variable that
+		has the required size to hold the received data.
+		The last parameter is the block time – the maximum amount of time that the
+		task will remain in the Blocked state to wait for data to be available
+		should the queue already be empty. */
+		xStatus = xQueueReceive( xQueue, &lReceivedValue, xTicksToWait );
+
+		if (xStatus == pdPASS ){
+			/* Data was successfully received from the queue, print out the received
+			value. */
+			vPrintStringAndNumber( "Received = ", lReceivedValue );
+		}
+		else {
+			/* Data was not received from the queue even after waiting for 100ms.
+			This must be an error as the sending tasks are free running and will be
+			continuously writing to the queue. */
+			vPrintString( "Could not receive from the queue.\r\n" );
+		}
+
+	}
 }
+
+
 void vPrintString(char* message){
 	HAL_UART_Transmit(&huart2, (uint8_t*)message, strlen(message), 0xFFFF);
 }
 
+void vPrintStringAndNumber(char* str, int32_t num){
+/* Dumb function that concatenaters max 30-char long string and 10-char long number */
+	char result[30] = "";
+    char strnum[10] = "";
+
+    sprintf(strnum, "%i \n\r", num);
+
+    strcpy(result, str);
+	strcat(result, strnum);
+
+	vPrintString(result);
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
