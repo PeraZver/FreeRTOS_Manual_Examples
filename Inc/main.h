@@ -38,6 +38,18 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+/* Define an enumerated type used to identify the source of the data. */
+typedef enum{
+	eSender1,
+	eSender2
+} DataSource_t;
+
+/* Define the structure type that will be passed on the queue. */
+typedef struct{
+	uint8_t ucValue;
+	DataSource_t eDataSource;
+} Data_t;
+
 
 /* USER CODE END ET */
 

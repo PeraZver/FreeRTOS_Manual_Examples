@@ -53,6 +53,12 @@ UART_HandleTypeDef huart2;
 /* Declare a variable of type QueueHandle_t. This is used to store the handle
 to the queue that is accessed by all three tasks. */
 QueueHandle_t xQueue;
+/* Declare two variables of type Data_t that will be passed on the queue. */
+static Data_t xStructToSend[2] =
+{
+		{ 100, eSender1 },
+		{ 200, eSender2 }
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -107,20 +113,20 @@ int main(void)
   /* USER CODE BEGIN 2 */
   /* The queue is created to hold a maximum of 5 values, each of which is
   large enough to hold a variable of type int32_t. */
-  xQueue = xQueueCreate( 5, sizeof( int32_t ) );
+  xQueue = xQueueCreate( 3, sizeof( Data_t ) );
 
   if( xQueue != NULL){
 	  /* Create two instances of the task that will send to the queue. The task
-	  parameter is used to pass the value that the task will write to the queue,
-	  so one task will continuously write 100 to the queue while the other task
-	  will continuously write 200 to the queue. Both tasks are created at
+	  parameter is used to pass the structure that the task will write to the queue,
+	  so one task will continuously write xStructToSend[ 0 ] to the queue while the other task
+	  will continuously write xStructToSend[ 1 ] to the queue. Both tasks are created at
 	  priority 1. */
-	  xTaskCreate( vSenderTask, "Sender1", 1000, (void *) 100, 1, NULL);
-	  xTaskCreate( vSenderTask, "Sender2", 1000, (void *) 200, 1, NULL);
+	  xTaskCreate( vSenderTask, "Sender1", 1000, &( xStructToSend[0] ), 2, NULL);
+	  xTaskCreate( vSenderTask, "Sender2", 1000, &( xStructToSend[1] ), 2, NULL);
 
 	  /* Create the task that will read from the queue. The task is created with
-	  priority 2, so above the priority of the sender tasks. */
-	  xTaskCreate( vReceiverTask, "Receiver", 1000, NULL, 2, NULL );
+	  priority 1, so below the priority of the sender tasks. */
+	  xTaskCreate( vReceiverTask, "Receiver", 1000, NULL, 1, NULL );
 
 	  /* Start the scheduler so the task starts executing. */
 	  vTaskStartScheduler();
@@ -295,28 +301,22 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 static void vSenderTask( void *pvParameters )
 {
-	int32_t lValueToSend;
-	BaseType_t xStatus;
 
-	/* Two instances of this task are created so the value that is sent to the
-	queue is passed in via the task parameter - this way each instance can use
-	a different value. The queue was created to hold values of type int32_t,
-	so cast the parameter to the required type. */
-	lValueToSend = (int32_t) pvParameters;
+	BaseType_t xStatus;
+	const TickType_t xTicksToWait = pdMS_TO_TICKS(100);
 
 	for(;;){
-		/* Send the value to the queue.
-		The first parameter is the queue to which data is being sent. The
-		queue was created before the scheduler was started, so before this task
-		started to execute.
-		The second parameter is the address of the data to be sent, in this case
-		the address of lValueToSend.
-		The third parameter is the Block time – the time the task should be kept
+		/* Send to the queue.
+		The second parameter is the address of the structure being sent. The
+		address is passed in as the task parameter so pvParameters is used
+		directly.
+		The third parameter is the Block time - the time the task should be kept
 		in the Blocked state to wait for space to become available on the queue
-		should the queue already be full. In this case a block time is not
-		specified because the queue should never contain more than one item, and
-		therefore never be full. */
-		xStatus = xQueueSendToBack( xQueue, &lValueToSend, 0);
+		if the queue is already full. A block time is specified because the
+		sending tasks have a higher priority than the receiving task so the queue
+		is expected to become full. The receiving task will remove items from
+		the queue when both sending tasks are in the Blocked state. */
+		xStatus = xQueueSendToBack( xQueue, pvParameters, xTicksToWait);
 
 		if (xStatus != pdPASS ){
 			/* The send operation could not complete because the queue was full -
@@ -330,38 +330,40 @@ static void vSenderTask( void *pvParameters )
 
 static void vReceiverTask (void *pvParameters )
 {
-	/* Declare the variable that will hold the values received from the queue. */
-	int32_t lReceivedValue;
+	/* Declare the structure that will hold the values received from the queue. */
+	Data_t xReceivedStructure;
 	BaseType_t xStatus;
-	const TickType_t xTicksToWait = pdMS_TO_TICKS( 100 );
 
 	for (;;){
-		/* This call should always find the queue empty because this task will
-		immediately remove any data that is written to the queue. */
-		if( uxQueueMessagesWaiting( xQueue ) != 0 )	{
+		/* Because it has the lowest priority this task will only run when the
+		sending tasks are in the Blocked state. The sending tasks will only enter
+		the Blocked state when the queue is full so this task always expects the
+		number of items in the queue to be equal to the queue length, which is 3 in
+		this case. */
+		if( uxQueueMessagesWaiting( xQueue ) != 3 )	{
 			vPrintString( "Queue should have been empty!\r\n" );
 		}
-		/* Receive data from the queue.
-		The first parameter is the queue from which data is to be received. The
-		queue is created before the scheduler is started, and therefore before this
-		task runs for the first time.
+		/* Receive from the queue.
 		The second parameter is the buffer into which the received data will be
 		placed. In this case the buffer is simply the address of a variable that
-		has the required size to hold the received data.
-		The last parameter is the block time – the maximum amount of time that the
+		has the required size to hold the received structure.
+		The last parameter is the block time - the maximum amount of time that the
 		task will remain in the Blocked state to wait for data to be available
-		should the queue already be empty. */
-		xStatus = xQueueReceive( xQueue, &lReceivedValue, xTicksToWait );
+		if the queue is already empty. In this case a block time is not necessary
+		because this task will only run when the queue is full. */
+		xStatus = xQueueReceive( xQueue, &xReceivedStructure, 0 );
 
 		if (xStatus == pdPASS ){
 			/* Data was successfully received from the queue, print out the received
-			value. */
-			vPrintStringAndNumber( "Received = ", lReceivedValue );
+			value and the source of the value. */
+			if ( xReceivedStructure.eDataSource == eSender1)
+				vPrintStringAndNumber( "From Sender1 = ", xReceivedStructure.ucValue );
+			else
+				vPrintStringAndNumber( "From Sender2 = ", xReceivedStructure.ucValue );
 		}
 		else {
-			/* Data was not received from the queue even after waiting for 100ms.
-			This must be an error as the sending tasks are free running and will be
-			continuously writing to the queue. */
+			/* Nothing was received from the queue. This must be an error as this
+			 * task should only run when the queue is full. */
 			vPrintString( "Could not receive from the queue.\r\n" );
 		}
 
@@ -378,7 +380,7 @@ void vPrintStringAndNumber(char* str, int32_t num){
 	char result[30] = "";
     char strnum[10] = "";
 
-    sprintf(strnum, "%i \n\r", num);
+    sprintf(strnum, "%ld \n\r", num);
 
     strcpy(result, str);
 	strcat(result, strnum);
@@ -386,14 +388,6 @@ void vPrintStringAndNumber(char* str, int32_t num){
 	vPrintString(result);
 }
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used 
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
 
 /**
   * @brief  Period elapsed callback in non blocking mode
